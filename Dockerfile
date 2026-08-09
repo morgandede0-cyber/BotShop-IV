@@ -17,4 +17,4 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Commande de lancement du bot
-CMD ["python", "bot.py"]
+CMD ["python", "ShopIV.py"]
