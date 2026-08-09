@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copier le code source du bot (assure-toi que ton fichier principal s'appelle bot.py ou renomme-le en conséquence)
+# Copier le code source du bot
 COPY . .
 
 # Commande de lancement du bot
