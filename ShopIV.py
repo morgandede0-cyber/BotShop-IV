@@ -291,7 +291,8 @@ class TroubadourPaginationView(ui.View):
         if self.current_ep > 1:
             self.current_ep -= 1
             self.update_components()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await interaction.response.defer()
+            await interaction.message.edit(embed=self.build_embed(), view=self)
 
     async def next_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.member.id:
@@ -299,7 +300,8 @@ class TroubadourPaginationView(ui.View):
         if self.current_ep < 25:
             self.current_ep += 1
             self.update_components()
-            await interaction.response.edit_message(embed=self.build_embed(), view=self)
+            await interaction.response.defer()
+            await interaction.message.edit(embed=self.build_embed(), view=self)
 
     async def listen_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.member.id:
@@ -566,7 +568,7 @@ class DynamicShopView(ui.View):
                     except discord.Forbidden:
                         feedback_extra = "\n⚠️ *Achat réussi, mais le bot manque de permissions pour attribuer le rôle.*"
 
-            await interaction.response.send_message(f"✅ Achat réussi ! Tu as acheté **{item_name}** pour {format_currency(item_price)}{feedback_extra}", ephemeral=True)
+            await interaction.response.send_message(f"✅ Achat réussi ! Tu avez acheté **{item_name}** pour {format_currency(item_price)}{feedback_extra}", ephemeral=True)
         return callback
 
 # --- MENU DE DIALOGUE PRINCIPAL DU MARCHAND ---
