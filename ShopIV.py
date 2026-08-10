@@ -2,13 +2,28 @@ import os
 import discord
 from discord import ui
 from discord.ext import commands
-import sqlite3
+import libsql_experimental as libsql
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-DB_NAME = "economy.db"
+
+# Connexion à la base de données cloud Turso (avec repli local si besoin)
+TURSO_URL = os.getenv("TURSO_URL", "libsql://shopiv-morgandede0-cyber.aws-us-west-2.turso.io")
+TURSO_TOKEN = os.getenv("TURSO_TOKEN", "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODYzNzY3MTcsImlkIjoiMDE5ZmVjNGEtNjIwMS03N2M0LTk5MGYtZmM4OTljODI1Yzg2Iiwia2lkIjoiWlhpc0lzWUM5czlzRlZpUVY4a3R1a1k0Q0xrVG4wel9sNTU5TFVrWTFhayIsInJpZCI6ImYxMGRjZDk4LWY4MWMtNGRlMC1hZjY2LTQ2ODYxODNlM2EwYiJ9.oA3QZyex2pLYIinz0Bxkcxum3MvFhHdn1laf289NprY1hvtckyyKsKatEQ5ZN1iKx0IR7HD3xcH-_SXaXC7ADQ")
+
+if os.path.exists('/data'):
+    DB_PATH = '/data/database.db'
+    conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
+    conn.sync()
+else:
+    DB_PATH = "database.db"
+    conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
+    try:
+        conn.sync()
+    except Exception:
+        pass
 
 # --- Dictionnaire des titres d'épisodes (1 à 25) ---
 EPISODE_TITLES = {
@@ -107,90 +122,88 @@ def format_currency(amount: int) -> str:
     return f"{amount:,} $".replace(",", " ")
 
 def init_db():
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id INTEGER PRIMARY KEY,
-                wallet INTEGER DEFAULT 0,
-                bank INTEGER DEFAULT 0,
-                last_daily INTEGER DEFAULT 0,
-                streak INTEGER DEFAULT 0
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS inventory (
-                user_id INTEGER,
-                item_name TEXT,
-                quantity INTEGER DEFAULT 1,
-                PRIMARY KEY (user_id, item_name)
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS story_progress (
-                user_id INTEGER,
-                episode INTEGER,
-                PRIMARY KEY (user_id, episode)
-            )
-        """)
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS shop_items (
-                item_key TEXT PRIMARY KEY,
-                name TEXT,
-                price INTEGER,
-                description TEXT,
-                shop_type TEXT DEFAULT 'normal',
-                episode INTEGER DEFAULT 0,
-                required_role_id INTEGER DEFAULT NULL,
-                role_to_give_id INTEGER DEFAULT NULL
-            )
-        """)
-        
-        cursor.execute("PRAGMA table_info(shop_items)")
-        columns = [column[1] for column in cursor.fetchall()]
-        if "shop_type" not in columns:
-            cursor.execute("ALTER TABLE shop_items ADD COLUMN shop_type TEXT DEFAULT 'normal'")
-        if "episode" not in columns:
-            cursor.execute("ALTER TABLE shop_items ADD COLUMN episode INTEGER DEFAULT 0")
-        if "required_role_id" not in columns:
-            cursor.execute("ALTER TABLE shop_items ADD COLUMN required_role_id INTEGER DEFAULT NULL")
-        if "role_to_give_id" not in columns:
-            cursor.execute("ALTER TABLE shop_items ADD COLUMN role_to_give_id INTEGER DEFAULT NULL")
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            wallet INTEGER DEFAULT 0,
+            bank INTEGER DEFAULT 0,
+            last_daily INTEGER DEFAULT 0,
+            streak INTEGER DEFAULT 0
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS inventory (
+            user_id INTEGER,
+            item_name TEXT,
+            quantity INTEGER DEFAULT 1,
+            PRIMARY KEY (user_id, item_name)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS story_progress (
+            user_id INTEGER,
+            episode INTEGER,
+            PRIMARY KEY (user_id, episode)
+        )
+    """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS shop_items (
+            item_key TEXT PRIMARY KEY,
+            name TEXT,
+            price INTEGER,
+            description TEXT,
+            shop_type TEXT DEFAULT 'normal',
+            episode INTEGER DEFAULT 0,
+            required_role_id INTEGER DEFAULT NULL,
+            role_to_give_id INTEGER DEFAULT NULL
+        )
+    """)
+    
+    cursor.execute("PRAGMA table_info(shop_items)")
+    columns = [column[1] for column in cursor.fetchall()]
+    if "shop_type" not in columns:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN shop_type TEXT DEFAULT 'normal'")
+    if "episode" not in columns:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN episode INTEGER DEFAULT 0")
+    if "required_role_id" not in columns:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN required_role_id INTEGER DEFAULT NULL")
+    if "role_to_give_id" not in columns:
+        cursor.execute("ALTER TABLE shop_items ADD COLUMN role_to_give_id INTEGER DEFAULT NULL")
 
-        cursor.execute("SELECT COUNT(*) FROM shop_items")
-        if cursor.fetchone()[0] == 0:
-            default_items = [
-                ("A1", "👑 Rôle VIP", 5000, "Un statut de VIP sur le serveur.", "normal", 0, None, None),
-                ("A2", "🎁 Boîte Mystère", 1000, "Contient une surprise aléatoire !", "normal", 0, None, None),
-                ("SP1", "💎 Épée Légendaire", 25000, "Une arme surpuissante réservée aux VIP.", "special", 0, None, None)
-            ]
-            cursor.executemany("INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", default_items)
+    cursor.execute("SELECT COUNT(*) FROM shop_items")
+    if cursor.fetchone()[0] == 0:
+        default_items = [
+            ("A1", "👑 Rôle VIP", 5000, "Un statut de VIP sur le serveur.", "normal", 0, None, None),
+            ("A2", "🎁 Boîte Mystère", 1000, "Contient une surprise aléatoire !", "normal", 0, None, None),
+            ("SP1", "💎 Épée Légendaire", 25000, "Une arme surpuissante réservée aux VIP.", "special", 0, None, None)
+        ]
+        cursor.executemany("INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", default_items)
 
-        cursor.execute("DELETE FROM shop_items WHERE shop_type = 'episode'")
-        
-        # Génération automatique des items d'épisodes 1 à 25
-        episode_items = []
-        for ep in range(1, 26):
-            episode_items.extend([
-                (f"EP{ep}_1", f"Relique Alpha [0{ep:02d}]" if ep < 10 else f"Relique Alpha [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
-                (f"EP{ep}_2", f"Relique Bêta [0{ep:02d}]" if ep < 10 else f"Relique Bêta [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
-                (f"EP{ep}_3", f"Relique Gamma [0{ep:02d}]" if ep < 10 else f"Relique Gamma [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
-                (f"EP{ep}_4", f"Relique Delta [0{ep:02d}]" if ep < 10 else f"Relique Delta [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
-            ])
-        cursor.executemany("INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", episode_items)
-        conn.commit()
+    cursor.execute("DELETE FROM shop_items WHERE shop_type = 'episode'")
+    
+    # Génération automatique des items d'épisodes 1 à 25
+    episode_items = []
+    for ep in range(1, 26):
+        episode_items.extend([
+            (f"EP{ep}_1", f"Relique Alpha [0{ep:02d}]" if ep < 10 else f"Relique Alpha [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
+            (f"EP{ep}_2", f"Relique Bêta [0{ep:02d}]" if ep < 10 else f"Relique Bêta [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
+            (f"EP{ep}_3", f"Relique Gamma [0{ep:02d}]" if ep < 10 else f"Relique Gamma [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
+            (f"EP{ep}_4", f"Relique Delta [0{ep:02d}]" if ep < 10 else f"Relique Delta [{ep}]", 500, "Objet d'histoire essentiel.", "episode", ep, None, None),
+        ])
+    cursor.executemany("INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", episode_items)
+    conn.commit()
 
 def get_user(user_id: int):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
+    cursor = conn.cursor()
+    cursor.execute("SELECT wallet, bank, last_daily, streak FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        cursor.execute("INSERT INTO users (user_id, wallet, bank) VALUES (?, 0, 0)", (user_id,))
+        conn.commit()
         cursor.execute("SELECT wallet, bank, last_daily, streak FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
-        if not row:
-            cursor.execute("INSERT INTO users (user_id, wallet, bank) VALUES (?, 0, 0)", (user_id,))
-            conn.commit()
-            cursor.execute("SELECT wallet, bank, last_daily, streak FROM users WHERE user_id = ?", (user_id,))
-            row = cursor.fetchone()
-        return int(row[0]), int(row[1]), int(row[2]), int(row[3])
+    return int(row[0]), int(row[1]), int(row[2]), int(row[3])
 
 @bot.event
 async def on_ready():
@@ -235,27 +248,26 @@ class TroubadourPaginationView(ui.View):
             return
 
         user_id = self.member.id
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
-            is_unlocked = cursor.fetchone() is not None
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
+        is_unlocked = cursor.fetchone() is not None
 
-            if self.current_ep == 1:
-                has_all_items = True
-            else:
-                prev_ep = self.current_ep - 1
-                cursor.execute("SELECT name FROM shop_items WHERE shop_type='episode' AND episode=?", (prev_ep,))
-                prev_ep_items = [row[0] for row in cursor.fetchall()]
+        if self.current_ep == 1:
+            has_all_items = True
+        else:
+            prev_ep = self.current_ep - 1
+            cursor.execute("SELECT name FROM shop_items WHERE shop_type='episode' AND episode=?", (prev_ep,))
+            prev_ep_items = [row[0] for row in cursor.fetchall()]
 
-                has_all_items = False
-                if prev_ep_items:
-                    cursor.execute("""
-                        SELECT COUNT(*) FROM inventory 
-                        WHERE user_id = ? AND item_name IN ({}) AND quantity > 0
-                    """.format(','.join(['?']*len(prev_ep_items))), [user_id] + prev_ep_items)
-                    owned_count = cursor.fetchone()[0]
-                    if owned_count >= len(prev_ep_items):
-                        has_all_items = True
+            has_all_items = False
+            if prev_ep_items:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM inventory 
+                    WHERE user_id = ? AND item_name IN ({}) AND quantity > 0
+                """.format(','.join(['?']*len(prev_ep_items))), [user_id] + prev_ep_items)
+                owned_count = cursor.fetchone()[0]
+                if owned_count >= len(prev_ep_items):
+                    has_all_items = True
 
         if is_unlocked:
             listen_btn = ui.Button(label="📖 Écouter / Relire l'histoire", style=discord.ButtonStyle.success, emoji="📜", row=1)
@@ -315,16 +327,20 @@ class TroubadourPaginationView(ui.View):
         user_id = self.member.id
         prev_ep = self.current_ep - 1
 
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name FROM shop_items WHERE shop_type='episode' AND episode=?", (prev_ep,))
-            prev_ep_items = [row[0] for row in cursor.fetchall()]
+        cursor = conn.cursor()
+        cursor.execute("SELECT name FROM shop_items WHERE shop_type='episode' AND episode=?", (prev_ep,))
+        prev_ep_items = [row[0] for row in cursor.fetchall()]
 
-            cursor.execute("INSERT OR IGNORE INTO story_progress (user_id, episode) VALUES (?, ?)", (user_id, self.current_ep))
+        cursor.execute("INSERT OR IGNORE INTO story_progress (user_id, episode) VALUES (?, ?)", (user_id, self.current_ep))
 
-            for item in prev_ep_items:
-                cursor.execute("DELETE FROM inventory WHERE user_id = ? AND item_name = ?", (user_id, item))
-            conn.commit()
+        for item in prev_ep_items:
+            cursor.execute("DELETE FROM inventory WHERE user_id = ? AND item_name = ?", (user_id, item))
+        conn.commit()
+
+        try:
+            conn.sync()
+        except Exception:
+            pass
 
         self.update_components()
         story_text = EPISODE_STORIES.get(self.current_ep, "« Une histoire mystérieuse... »")
@@ -348,10 +364,9 @@ class TroubadourPaginationView(ui.View):
             status_txt = "📖 **[Épisode Gratuit & Accessible]**"
         else:
             user_id = self.member.id
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
-                is_unlocked = cursor.fetchone() is not None
+            cursor = conn.cursor()
+            cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
+            is_unlocked = cursor.fetchone() is not None
 
             status_txt = "📖 **[Débloqué & Sauvegardé]**" if is_unlocked else f"🔒 **[Verrouillé / Reliques de l'épisode {self.current_ep - 1} requises]**"
 
@@ -389,18 +404,16 @@ class EpisodeShopView(ui.View):
         self.load_items()
 
     def load_items(self):
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT item_key, name, price FROM shop_items WHERE shop_type = 'episode' AND episode = ?", (self.episode_num,))
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT item_key, name, price FROM shop_items WHERE shop_type = 'episode' AND episode = ?", (self.episode_num,))
+        items = cursor.fetchall()
 
         all_bought = True
         for item_key, name, price in items:
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT quantity FROM inventory WHERE user_id=? AND item_name=?", (self.member.id, name))
-                res = cursor.fetchone()
-                has_item = bool(res and res[0] > 0)
+            cursor = conn.cursor()
+            cursor.execute("SELECT quantity FROM inventory WHERE user_id=? AND item_name=?", (self.member.id, name))
+            res = cursor.fetchone()
+            has_item = bool(res and res[0] > 0)
 
             owned = has_item
 
@@ -436,14 +449,17 @@ class EpisodeShopView(ui.View):
             if wallet < item_price:
                 return await interaction.response.send_message(f"❌ Solde insuffisant ! Il te manque {format_currency(item_price - wallet)}.", ephemeral=True)
 
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
-                cursor.execute("""
-                    INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, 1)
-                    ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
-                """, (self.member.id, item_name))
-                conn.commit()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
+            cursor.execute("""
+                INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, 1)
+                ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
+            """, (self.member.id, item_name))
+            conn.commit()
+            try:
+                conn.sync()
+            except Exception:
+                pass
 
             new_view = EpisodeShopView(self.member, self.episode_num)
             
@@ -451,10 +467,9 @@ class EpisodeShopView(ui.View):
             embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
             embed.description = "Achète tous les objets de cet épisode !"
             
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (self.episode_num,))
-                items = cursor.fetchall()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (self.episode_num,))
+            items = cursor.fetchall()
                 
             for n, p, desc in items:
                 embed.add_field(name=n, value=f"Prix : **{format_currency(p)}**\n*{desc}*", inline=False)
@@ -474,10 +489,9 @@ class EpisodeShopView(ui.View):
         embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
         embed.description = "Achète tous les objets de cet épisode !"
         
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (next_ep,))
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (next_ep,))
+        items = cursor.fetchall()
             
         for n, p, desc in items:
             embed.add_field(name=n, value=f"Prix : **{format_currency(p)}**\n*{desc}*", inline=False)
@@ -493,10 +507,9 @@ class DynamicShopView(ui.View):
         self.load_items()
 
     def load_items(self):
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT item_key, name, price, required_role_id FROM shop_items WHERE shop_type = ?", (self.shop_type,))
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT item_key, name, price, required_role_id FROM shop_items WHERE shop_type = ?", (self.shop_type,))
+        items = cursor.fetchall()
 
         for item_key, name, price, required_role_id in items:
             if required_role_id is not None:
@@ -517,10 +530,9 @@ class DynamicShopView(ui.View):
             if interaction.user.id != self.member.id:
                 return await interaction.response.send_message("❌ Ce n'est pas votre boutique !", ephemeral=True)
             
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("SELECT name, price, role_to_give_id FROM shop_items WHERE item_key = ?", (item_key,))
-                item = cursor.fetchone()
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, price, role_to_give_id FROM shop_items WHERE item_key = ?", (item_key,))
+            item = cursor.fetchone()
 
             if not item:
                 return await interaction.response.send_message("❌ Cet article n'existe plus.", ephemeral=True)
@@ -531,14 +543,17 @@ class DynamicShopView(ui.View):
             if wallet < item_price:
                 return await interaction.response.send_message(f"❌ Solde insuffisant ! Il te manque {format_currency(item_price - wallet)}.", ephemeral=True)
 
-            with sqlite3.connect(DB_NAME) as conn:
-                cursor = conn.cursor()
-                cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
-                cursor.execute("""
-                    INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, 1)
-                    ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
-                """, (self.member.id, item_name))
-                conn.commit()
+            cursor = conn.cursor()
+            cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
+            cursor.execute("""
+                INSERT INTO inventory (user_id, item_name, quantity) VALUES (?, ?, 1)
+                ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
+            """, (self.member.id, item_name))
+            conn.commit()
+            try:
+                conn.sync()
+            except Exception:
+                pass
 
             feedback_extra = ""
             if role_to_give_id:
@@ -560,17 +575,16 @@ class ShopDialogueView(ui.View):
         self.member = member
         
         has_special_access = False
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT required_role_id FROM shop_items WHERE shop_type = 'special'")
-            rows = cursor.fetchall()
-            for row in rows:
-                r_id = row[0]
-                if r_id:
-                    r = self.member.guild.get_role(r_id)
-                    if r and r in self.member.roles:
-                        has_special_access = True
-                        break
+        cursor = conn.cursor()
+        cursor.execute("SELECT required_role_id FROM shop_items WHERE shop_type = 'special'")
+        rows = cursor.fetchall()
+        for row in rows:
+            r_id = row[0]
+            if r_id:
+                r = self.member.guild.get_role(r_id)
+                if r and r in self.member.roles:
+                    has_special_access = True
+                    break
 
         if has_special_access:
             special_button = ui.Button(
@@ -586,10 +600,9 @@ class ShopDialogueView(ui.View):
         if interaction.user.id != self.member.id:
             return await interaction.response.send_message("❌ Ce n'est pas ton tour de parler au marchand !", ephemeral=True)
         
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name, price, description, required_role_id FROM shop_items WHERE shop_type = 'normal'")
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, price, description, required_role_id FROM shop_items WHERE shop_type = 'normal'")
+        items = cursor.fetchall()
 
         embed = discord.Embed(title="🛒 Boutique Normale", color=discord.Color.gold())
         embed.description = "Voici les objets disponibles :"
@@ -611,10 +624,9 @@ class ShopDialogueView(ui.View):
         embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
         embed.description = "Achète tous les objets de cet épisode !"
         
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (current_ep,))
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (current_ep,))
+        items = cursor.fetchall()
             
         for name, price, desc in items:
             embed.add_field(name=name, value=f"Prix : **{format_currency(price)}**\n*{desc}*", inline=False)
@@ -625,10 +637,9 @@ class ShopDialogueView(ui.View):
         if interaction.user.id != self.member.id:
             return await interaction.response.send_message("❌ Ce n'est pas ton tour !", ephemeral=True)
 
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type = 'special'")
-            items = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type = 'special'")
+        items = cursor.fetchall()
 
         embed = discord.Embed(title="✨ Boutique Spéciale & Inédite", color=discord.Color.purple())
         embed.description = "Félicitations pour ton accès exclusif ! Voici les articles inédits :"
@@ -645,10 +656,9 @@ class ShopDialogueView(ui.View):
             return await interaction.response.send_message("❌ Ce n'est pas ton tour de parler au marchand !", ephemeral=True)
         
         user_id = interaction.user.id
-        with sqlite3.connect(DB_NAME) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
-            rows = cursor.fetchall()
+        cursor = conn.cursor()
+        cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
+        rows = cursor.fetchall()
 
         embed = discord.Embed(title=f"🎒 Inventaire de {interaction.user.display_name}", color=discord.Color.blue())
         if not rows:
@@ -750,11 +760,14 @@ async def setup_troubadour_error(interaction: discord.Interaction, error):
 @bot.tree.command(name="reset-story", description="[Admin] Réinitialise la progression des histoires et supprime les reliques des inventaires")
 @commands.has_permissions(administrator=True)
 async def reset_story(interaction: discord.Interaction):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM story_progress")
-        cursor.execute("DELETE FROM inventory WHERE item_name LIKE '%Relique%'")
-        conn.commit()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM story_progress")
+    cursor.execute("DELETE FROM inventory WHERE item_name LIKE '%Relique%'")
+    conn.commit()
+    try:
+        conn.sync()
+    except Exception:
+        pass
 
     await interaction.response.send_message("🔄 **Réinitialisation réussie !** Toutes les histoires validées et les reliques d'épisodes ont été remises à zéro pour les tests.", ephemeral=True)
 
@@ -768,10 +781,9 @@ async def reset_story_error(interaction: discord.Interaction, error):
 @bot.tree.command(name="inventory", description="Affiche ton inventaire d'achats")
 async def inventory(interaction: discord.Interaction):
     user_id = interaction.user.id
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
-        rows = cursor.fetchall()
+    cursor = conn.cursor()
+    cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
+    rows = cursor.fetchall()
 
     embed = discord.Embed(title=f"🎒 Inventaire de {interaction.user.display_name}", color=discord.Color.blue())
     if not rows:
@@ -797,16 +809,19 @@ async def shop_add(
     req_role_id = required_role.id if required_role else None
     give_role_id = role_to_give.id if role_to_give else None
 
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(item_key) DO UPDATE SET 
-                name = ?, price = ?, description = ?, shop_type = ?, episode = ?, required_role_id = ?, role_to_give_id = ?
-        """, (item_key, name, price, description, shop_type, episode, req_role_id, give_role_id, 
-              name, price, description, shop_type, episode, req_role_id, give_role_id))
-        conn.commit()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(item_key) DO UPDATE SET 
+            name = ?, price = ?, description = ?, shop_type = ?, episode = ?, required_role_id = ?, role_to_give_id = ?
+    """, (item_key, name, price, description, shop_type, episode, req_role_id, give_role_id, 
+          name, price, description, shop_type, episode, req_role_id, give_role_id))
+    conn.commit()
+    try:
+        conn.sync()
+    except Exception:
+        pass
 
     ep_txt = f" (Épisode {episode})" if shop_type == "episode" else ""
     await interaction.response.send_message(f"✅ L'article **{name}** a été ajouté au shop **{shop_type}**{ep_txt} avec succès !", ephemeral=True)
@@ -821,11 +836,14 @@ async def shop_add_error(interaction: discord.Interaction, error):
 @bot.tree.command(name="shop_remove", description="[Admin] Supprime un article de la boutique")
 @commands.has_permissions(administrator=True)
 async def shop_remove(interaction: discord.Interaction, item_key: str):
-    with sqlite3.connect(DB_NAME) as conn:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM shop_items WHERE item_key = ?", (item_key,))
-        deleted = cursor.rowcount
-        conn.commit()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM shop_items WHERE item_key = ?", (item_key,))
+    deleted = cursor.rowcount
+    conn.commit()
+    try:
+        conn.sync()
+    except Exception:
+        pass
 
     if deleted > 0:
         await interaction.response.send_message(f"✅ Article `{item_key}` supprimé.", ephemeral=True)
