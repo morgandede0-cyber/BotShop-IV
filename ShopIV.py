@@ -2,28 +2,18 @@ import os
 import discord
 from discord import ui
 from discord.ext import commands
-import libsql_experimental as libsql
+import sqlite3
 
 intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# Connexion à la base de données cloud Turso (avec repli local si besoin)
-TURSO_URL = os.getenv("TURSO_URL", "libsql://shopiv-morgandede0-cyber.aws-us-west-2.turso.io")
-TURSO_TOKEN = os.getenv("TURSO_TOKEN", "eyJhbGciOiJFZERTQSIsInR5cCI6IkpXVCJ9.eyJhIjoicnciLCJpYXQiOjE3ODYzNzY3MTcsImlkIjoiMDE5ZmVjNGEtNjIwMS03N2M0LTk5MGYtZmM4OTljODI1Yzg2Iiwia2lkIjoiWlhpc0lzWUM5czlzRlZpUVY4a3R1a1k0Q0xrVG4wel9sNTU5TFVrWTFhayIsInJpZCI6ImYxMGRjZDk4LWY4MWMtNGRlMC1hZjY2LTQ2ODYxODNlM2EwYiJ9.oA3QZyex2pLYIinz0Bxkcxum3MvFhHdn1laf289NprY1hvtckyyKsKatEQ5ZN1iKx0IR7HD3xcH-_SXaXC7ADQ")
+# Connexion à la base de données locale SQLite (simple et sans Turso)
+DB_PATH = "database.db"
 
-if os.path.exists('/data'):
-    DB_PATH = '/data/database.db'
-    conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
-    conn.sync()
-else:
-    DB_PATH = "database.db"
-    conn = libsql.connect(DB_PATH, sync_url=TURSO_URL, auth_token=TURSO_TOKEN)
-    try:
-        conn.sync()
-    except Exception:
-        pass
+def get_db_connection():
+    return sqlite3.connect(DB_PATH)
 
 # --- Dictionnaire des titres d'épisodes (1 à 25) ---
 EPISODE_TITLES = {
@@ -111,7 +101,7 @@ EPISODE_STORIES = {
     21: "« La guerre des temples éclata, dressant les factions les unes contre les autres pour le contrôle de ces sanctuaires sacrés. »",
     22: "« Le silence de l'après-bataille laissa place au bilan des pertes et à la réorganisation des forces en vue des prochaines échéances. »",
     23: "« Une réputation naissante précédait désormais le Voyageur à travers tout le royaume, ouvrant de nouvelles portes diplomatiques. »",
-    24: "« Le prix de la progression fut élevé, exigeant des sacrifices constants et une gestion rigoureuse des richesses accumulées. »",
+    24: "« Le prix de la progression foi élevé, exigeant des sacrifices constants et une gestion rigoureuse des richesses accumulées. »",
     25: "« L'épreuve ultime : Le Siège final. Tout ce qui avait été bâti se retrouva jeté dans la balance pour l'assaut décisif. »"
 }
 
@@ -122,6 +112,7 @@ def format_currency(amount: int) -> str:
     return f"{amount:,} $".replace(",", " ")
 
 def init_db():
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS users (
@@ -193,8 +184,10 @@ def init_db():
         ])
     cursor.executemany("INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", episode_items)
     conn.commit()
+    conn.close()
 
 def get_user(user_id: int):
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT wallet, bank, last_daily, streak FROM users WHERE user_id = ?", (user_id,))
     row = cursor.fetchone()
@@ -203,6 +196,7 @@ def get_user(user_id: int):
         conn.commit()
         cursor.execute("SELECT wallet, bank, last_daily, streak FROM users WHERE user_id = ?", (user_id,))
         row = cursor.fetchone()
+    conn.close()
     return int(row[0]), int(row[1]), int(row[2]), int(row[3])
 
 @bot.event
@@ -248,6 +242,7 @@ class TroubadourPaginationView(ui.View):
             return
 
         user_id = self.member.id
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
         is_unlocked = cursor.fetchone() is not None
@@ -268,6 +263,7 @@ class TroubadourPaginationView(ui.View):
                 owned_count = cursor.fetchone()[0]
                 if owned_count >= len(prev_ep_items):
                     has_all_items = True
+        conn.close()
 
         if is_unlocked:
             listen_btn = ui.Button(label="📖 Écouter / Relire l'histoire", style=discord.ButtonStyle.success, emoji="📜", row=1)
@@ -291,8 +287,7 @@ class TroubadourPaginationView(ui.View):
         if self.current_ep > 1:
             self.current_ep -= 1
             self.update_components()
-            await interaction.response.defer()
-            await interaction.message.edit(embed=self.build_embed(), view=self)
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     async def next_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.member.id:
@@ -300,8 +295,7 @@ class TroubadourPaginationView(ui.View):
         if self.current_ep < 25:
             self.current_ep += 1
             self.update_components()
-            await interaction.response.defer()
-            await interaction.message.edit(embed=self.build_embed(), view=self)
+            await interaction.response.edit_message(embed=self.build_embed(), view=self)
 
     async def listen_callback(self, interaction: discord.Interaction):
         if interaction.user.id != self.member.id:
@@ -329,6 +323,7 @@ class TroubadourPaginationView(ui.View):
         user_id = self.member.id
         prev_ep = self.current_ep - 1
 
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name FROM shop_items WHERE shop_type='episode' AND episode=?", (prev_ep,))
         prev_ep_items = [row[0] for row in cursor.fetchall()]
@@ -338,11 +333,7 @@ class TroubadourPaginationView(ui.View):
         for item in prev_ep_items:
             cursor.execute("DELETE FROM inventory WHERE user_id = ? AND item_name = ?", (user_id, item))
         conn.commit()
-
-        try:
-            conn.sync()
-        except Exception:
-            pass
+        conn.close()
 
         self.update_components()
         story_text = EPISODE_STORIES.get(self.current_ep, "« Une histoire mystérieuse... »")
@@ -354,8 +345,7 @@ class TroubadourPaginationView(ui.View):
         )
         embed.set_thumbnail(url="https://images.emojiterra.com/google/android-10/512px/1f3ad.png")
         
-        await interaction.response.defer()
-        await interaction.message.edit(embed=self.build_embed(), view=self)
+        await interaction.response.edit_message(embed=self.build_embed(), view=self)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     def build_embed(self) -> discord.Embed:
@@ -367,9 +357,11 @@ class TroubadourPaginationView(ui.View):
             status_txt = "📖 **[Épisode Gratuit & Accessible]**"
         else:
             user_id = self.member.id
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT 1 FROM story_progress WHERE user_id = ? AND episode = ?", (user_id, self.current_ep))
             is_unlocked = cursor.fetchone() is not None
+            conn.close()
 
             status_txt = "📖 **[Débloqué & Sauvegardé]**" if is_unlocked else f"🔒 **[Verrouillé / Reliques de l'épisode {self.current_ep - 1} requises]**"
 
@@ -407,13 +399,13 @@ class EpisodeShopView(ui.View):
         self.load_items()
 
     def load_items(self):
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT item_key, name, price FROM shop_items WHERE shop_type = 'episode' AND episode = ?", (self.episode_num,))
         items = cursor.fetchall()
 
         all_bought = True
         for item_key, name, price in items:
-            cursor = conn.cursor()
             cursor.execute("SELECT quantity FROM inventory WHERE user_id=? AND item_name=?", (self.member.id, name))
             res = cursor.fetchone()
             has_item = bool(res and res[0] > 0)
@@ -442,6 +434,7 @@ class EpisodeShopView(ui.View):
             )
             next_btn.callback = self.next_episode_callback
             self.add_item(next_btn)
+        conn.close()
 
     def create_callback(self, item_key: str, item_name: str, item_price: int):
         async def callback(interaction: discord.Interaction):
@@ -452,6 +445,7 @@ class EpisodeShopView(ui.View):
             if wallet < item_price:
                 return await interaction.response.send_message(f"❌ Solde insuffisant ! Il te manque {format_currency(item_price - wallet)}.", ephemeral=True)
 
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
             cursor.execute("""
@@ -459,10 +453,7 @@ class EpisodeShopView(ui.View):
                 ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
             """, (self.member.id, item_name))
             conn.commit()
-            try:
-                conn.sync()
-            except Exception:
-                pass
+            conn.close()
 
             new_view = EpisodeShopView(self.member, self.episode_num)
             
@@ -470,9 +461,11 @@ class EpisodeShopView(ui.View):
             embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
             embed.description = "Achète tous les objets de cet épisode !"
             
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (self.episode_num,))
             items = cursor.fetchall()
+            conn.close()
                 
             for n, p, desc in items:
                 embed.add_field(name=n, value=f"Prix : **{format_currency(p)}**\n*{desc}*", inline=False)
@@ -492,9 +485,11 @@ class EpisodeShopView(ui.View):
         embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
         embed.description = "Achète tous les objets de cet épisode !"
         
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (next_ep,))
         items = cursor.fetchall()
+        conn.close()
             
         for n, p, desc in items:
             embed.add_field(name=n, value=f"Prix : **{format_currency(p)}**\n*{desc}*", inline=False)
@@ -510,9 +505,11 @@ class DynamicShopView(ui.View):
         self.load_items()
 
     def load_items(self):
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT item_key, name, price, required_role_id FROM shop_items WHERE shop_type = ?", (self.shop_type,))
         items = cursor.fetchall()
+        conn.close()
 
         for item_key, name, price, required_role_id in items:
             if required_role_id is not None:
@@ -533,9 +530,11 @@ class DynamicShopView(ui.View):
             if interaction.user.id != self.member.id:
                 return await interaction.response.send_message("❌ Ce n'est pas votre boutique !", ephemeral=True)
             
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("SELECT name, price, role_to_give_id FROM shop_items WHERE item_key = ?", (item_key,))
             item = cursor.fetchone()
+            conn.close()
 
             if not item:
                 return await interaction.response.send_message("❌ Cet article n'existe plus.", ephemeral=True)
@@ -546,6 +545,7 @@ class DynamicShopView(ui.View):
             if wallet < item_price:
                 return await interaction.response.send_message(f"❌ Solde insuffisant ! Il te manque {format_currency(item_price - wallet)}.", ephemeral=True)
 
+            conn = get_db_connection()
             cursor = conn.cursor()
             cursor.execute("UPDATE users SET wallet = wallet - ? WHERE user_id = ?", (item_price, self.member.id))
             cursor.execute("""
@@ -553,10 +553,7 @@ class DynamicShopView(ui.View):
                 ON CONFLICT(user_id, item_name) DO UPDATE SET quantity = quantity + 1
             """, (self.member.id, item_name))
             conn.commit()
-            try:
-                conn.sync()
-            except Exception:
-                pass
+            conn.close()
 
             feedback_extra = ""
             if role_to_give_id:
@@ -568,7 +565,7 @@ class DynamicShopView(ui.View):
                     except discord.Forbidden:
                         feedback_extra = "\n⚠️ *Achat réussi, mais le bot manque de permissions pour attribuer le rôle.*"
 
-            await interaction.response.send_message(f"✅ Achat réussi ! Tu avez acheté **{item_name}** pour {format_currency(item_price)}{feedback_extra}", ephemeral=True)
+            await interaction.response.send_message(f"✅ Achat réussi ! Tu as acheté **{item_name}** pour {format_currency(item_price)}{feedback_extra}", ephemeral=True)
         return callback
 
 # --- MENU DE DIALOGUE PRINCIPAL DU MARCHAND ---
@@ -578,9 +575,12 @@ class ShopDialogueView(ui.View):
         self.member = member
         
         has_special_access = False
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT required_role_id FROM shop_items WHERE shop_type = 'special'")
         rows = cursor.fetchall()
+        conn.close()
+
         for row in rows:
             r_id = row[0]
             if r_id:
@@ -603,9 +603,11 @@ class ShopDialogueView(ui.View):
         if interaction.user.id != self.member.id:
             return await interaction.response.send_message("❌ Ce n'est pas ton tour de parler au marchand !", ephemeral=True)
         
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name, price, description, required_role_id FROM shop_items WHERE shop_type = 'normal'")
         items = cursor.fetchall()
+        conn.close()
 
         embed = discord.Embed(title="🛒 Boutique Normale", color=discord.Color.gold())
         embed.description = "Voici les objets disponibles :"
@@ -627,9 +629,11 @@ class ShopDialogueView(ui.View):
         embed = discord.Embed(title=f"📜 {title}", color=discord.Color.dark_teal())
         embed.description = "Achète tous les objets de cet épisode !"
         
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type='episode' AND episode=?", (current_ep,))
         items = cursor.fetchall()
+        conn.close()
             
         for name, price, desc in items:
             embed.add_field(name=name, value=f"Prix : **{format_currency(price)}**\n*{desc}*", inline=False)
@@ -640,9 +644,11 @@ class ShopDialogueView(ui.View):
         if interaction.user.id != self.member.id:
             return await interaction.response.send_message("❌ Ce n'est pas ton tour !", ephemeral=True)
 
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT name, price, description FROM shop_items WHERE shop_type = 'special'")
         items = cursor.fetchall()
+        conn.close()
 
         embed = discord.Embed(title="✨ Boutique Spéciale & Inédite", color=discord.Color.purple())
         embed.description = "Félicitations pour ton accès exclusif ! Voici les articles inédits :"
@@ -659,9 +665,11 @@ class ShopDialogueView(ui.View):
             return await interaction.response.send_message("❌ Ce n'est pas ton tour de parler au marchand !", ephemeral=True)
         
         user_id = interaction.user.id
+        conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
         rows = cursor.fetchall()
+        conn.close()
 
         embed = discord.Embed(title=f"🎒 Inventaire de {interaction.user.display_name}", color=discord.Color.blue())
         if not rows:
@@ -778,14 +786,12 @@ async def setup_troubadour_error(interaction: discord.Interaction, error):
 @commands.has_permissions(administrator=True)
 async def reset_story(interaction: discord.Interaction):
     await interaction.response.defer(ephemeral=True)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM story_progress")
     cursor.execute("DELETE FROM inventory WHERE item_name LIKE '%Relique%'")
     conn.commit()
-    try:
-        conn.sync()
-    except Exception:
-        pass
+    conn.close()
 
     await interaction.followup.send("🔄 **Réinitialisation réussie !** Toutes les histoires validées et les reliques d'épisodes ont été remises à zéro pour les tests.", ephemeral=True)
 
@@ -805,9 +811,11 @@ async def reset_story_error(interaction: discord.Interaction, error):
 @bot.tree.command(name="inventory", description="Affiche ton inventaire d'achats")
 async def inventory(interaction: discord.Interaction):
     user_id = interaction.user.id
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("SELECT item_name, quantity FROM inventory WHERE user_id = ?", (user_id,))
     rows = cursor.fetchall()
+    conn.close()
 
     embed = discord.Embed(title=f"🎒 Inventaire de {interaction.user.display_name}", color=discord.Color.blue())
     if not rows:
@@ -834,6 +842,7 @@ async def shop_add(
     req_role_id = required_role.id if required_role else None
     give_role_id = role_to_give.id if role_to_give else None
 
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO shop_items (item_key, name, price, description, shop_type, episode, required_role_id, role_to_give_id) 
@@ -843,10 +852,7 @@ async def shop_add(
     """, (item_key, name, price, description, shop_type, episode, req_role_id, give_role_id, 
           name, price, description, shop_type, episode, req_role_id, give_role_id))
     conn.commit()
-    try:
-        conn.sync()
-    except Exception:
-        pass
+    conn.close()
 
     ep_txt = f" (Épisode {episode})" if shop_type == "episode" else ""
     await interaction.followup.send(f"✅ L'article **{name}** a été ajouté au shop **{shop_type}**{ep_txt} avec succès !", ephemeral=True)
@@ -868,14 +874,12 @@ async def shop_add_error(interaction: discord.Interaction, error):
 @commands.has_permissions(administrator=True)
 async def shop_remove(interaction: discord.Interaction, item_key: str):
     await interaction.response.defer(ephemeral=True)
+    conn = get_db_connection()
     cursor = conn.cursor()
     cursor.execute("DELETE FROM shop_items WHERE item_key = ?", (item_key,))
     deleted = cursor.rowcount
     conn.commit()
-    try:
-        conn.sync()
-    except Exception:
-        pass
+    conn.close()
 
     if deleted > 0:
         await interaction.followup.send(f"✅ Article `{item_key}` supprimé.", ephemeral=True)
