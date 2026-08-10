@@ -2,7 +2,7 @@ import os
 import discord
 from discord import ui
 from discord.ext import commands
-import libsql
+import libsql_experimental as libsql
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -66,7 +66,7 @@ EPISODE_STORIES = {
         "« Mon ballon ! »\n\n"
         "Une petite voix brisa le silence. Un ballon venait de rouler sous l’arche. Sans réfléchir, le Voyageur courut le récupérer. "
         "Il le ramassa, puis fit un pas pour revenir.\n\n"
-        "Le vent s’arrêta. Plus un bruit. Il leva lentement les yeux. Le parc avait disparu.\n"
+        "Le vent s’arrêta. Plus un bruit. Il leva lentement les yeux. Le parc had disparu.\n"
         "À sa place… Une vaste route pavée traversait une immense plaine. Des caravanes avançaient lentement. Des marchands discutaient.\n"
         "Le Voyageur resta figé.\n\n"
         "Parmi les voyageurs, certains ne ressemblaient à aucun être qu’il avait déjà vu. Leurs traits rappelaient ceux de grands félins, "
@@ -714,6 +714,7 @@ async def balance(interaction: discord.Interaction, member: discord.Member = Non
 @bot.tree.command(name="setup-marchand", description="[Admin] Installe le PNJ permanent dans le salon actuel")
 @commands.has_permissions(administrator=True)
 async def setup_marchand(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(
         title="✨ Bienvenue au Salon du Shop !",
         description=(
@@ -725,18 +726,25 @@ async def setup_marchand(interaction: discord.Interaction):
     embed.set_thumbnail(url="https://images.emojiterra.com/google/android-10/512px/1f98a.png")
     view = PersistentMerchantView()
     await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("✅ Le PNJ marchand a été installé avec succès dans ce salon !", ephemeral=True)
+    await interaction.followup.send("✅ Le PNJ marchand a été installé avec succès dans ce salon !", ephemeral=True)
 
 @setup_marchand.error
 async def setup_marchand_error(interaction: discord.Interaction, error):
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Permission refusée.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
 
 @bot.tree.command(name="setup-troubadour", description="[Admin] Installe Guillaume le Troubadour permanent dans le salon actuel")
 @commands.has_permissions(administrator=True)
 async def setup_troubadour(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     embed = discord.Embed(
         title="🪕 Guillaume le Troubadour",
         description=(
@@ -748,18 +756,25 @@ async def setup_troubadour(interaction: discord.Interaction):
     embed.set_thumbnail(url="https://images.emojiterra.com/google/android-10/512px/1f3ad.png")
     view = PersistentTroubadourView()
     await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message("✅ Guillaume le Troubadour a été installé avec succès dans ce salon !", ephemeral=True)
+    await interaction.followup.send("✅ Guillaume le Troubadour a été installé avec succès dans ce salon !", ephemeral=True)
 
 @setup_troubadour.error
 async def setup_troubadour_error(interaction: discord.Interaction, error):
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Permission refusée.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
 
 @bot.tree.command(name="reset-story", description="[Admin] Réinitialise la progression des histoires et supprime les reliques des inventaires")
 @commands.has_permissions(administrator=True)
 async def reset_story(interaction: discord.Interaction):
+    await interaction.response.defer(ephemeral=True)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM story_progress")
     cursor.execute("DELETE FROM inventory WHERE item_name LIKE '%Relique%'")
@@ -769,14 +784,20 @@ async def reset_story(interaction: discord.Interaction):
     except Exception:
         pass
 
-    await interaction.response.send_message("🔄 **Réinitialisation réussie !** Toutes les histoires validées et les reliques d'épisodes ont été remises à zéro pour les tests.", ephemeral=True)
+    await interaction.followup.send("🔄 **Réinitialisation réussie !** Toutes les histoires validées et les reliques d'épisodes ont été remises à zéro pour les tests.", ephemeral=True)
 
 @reset_story.error
 async def reset_story_error(interaction: discord.Interaction, error):
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Permission refusée.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
 
 @bot.tree.command(name="inventory", description="Affiche ton inventaire d'achats")
 async def inventory(interaction: discord.Interaction):
@@ -806,6 +827,7 @@ async def shop_add(
     required_role: discord.Role = None, 
     role_to_give: discord.Role = None
 ):
+    await interaction.response.defer(ephemeral=True)
     req_role_id = required_role.id if required_role else None
     give_role_id = role_to_give.id if role_to_give else None
 
@@ -824,18 +846,25 @@ async def shop_add(
         pass
 
     ep_txt = f" (Épisode {episode})" if shop_type == "episode" else ""
-    await interaction.response.send_message(f"✅ L'article **{name}** a été ajouté au shop **{shop_type}**{ep_txt} avec succès !", ephemeral=True)
+    await interaction.followup.send(f"✅ L'article **{name}** a été ajouté au shop **{shop_type}**{ep_txt} avec succès !", ephemeral=True)
 
 @shop_add.error
 async def shop_add_error(interaction: discord.Interaction, error):
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Permission refusée.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
 
 @bot.tree.command(name="shop_remove", description="[Admin] Supprime un article de la boutique")
 @commands.has_permissions(administrator=True)
 async def shop_remove(interaction: discord.Interaction, item_key: str):
+    await interaction.response.defer(ephemeral=True)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM shop_items WHERE item_key = ?", (item_key,))
     deleted = cursor.rowcount
@@ -846,16 +875,22 @@ async def shop_remove(interaction: discord.Interaction, item_key: str):
         pass
 
     if deleted > 0:
-        await interaction.response.send_message(f"✅ Article `{item_key}` supprimé.", ephemeral=True)
+        await interaction.followup.send(f"✅ Article `{item_key}` supprimé.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Aucun article trouvé avec la clé `{item_key}`.", ephemeral=True)
+        await interaction.followup.send(f"❌ Aucun article trouvé avec la clé `{item_key}`.", ephemeral=True)
 
 @shop_remove.error
 async def shop_remove_error(interaction: discord.Interaction, error):
     if isinstance(error, discord.app_commands.MissingPermissions):
-        await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        else:
+            await interaction.followup.send("❌ Permission refusée.", ephemeral=True)
     else:
-        await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        if not interaction.response.is_done():
+            await interaction.response.send_message(f"❌ Erreur : {error}", ephemeral=True)
+        else:
+            await interaction.followup.send(f"❌ Erreur : {error}", ephemeral=True)
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 bot.run(TOKEN)
