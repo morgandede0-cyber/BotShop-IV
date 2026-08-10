@@ -10,7 +10,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Connexion à la base de données locale SQLite (simple et sans Turso)
-DB_PATH = "database.db"
+DB_PATH = "economy.db"
 
 def get_db_connection():
     return sqlite3.connect(DB_PATH)
