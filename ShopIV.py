@@ -2,7 +2,7 @@ import os
 import discord
 from discord import ui
 from discord.ext import commands
-import libsql
+import libsql_experimental as libsql
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -66,7 +66,7 @@ EPISODE_STORIES = {
         "« Mon ballon ! »\n\n"
         "Une petite voix brisa le silence. Un ballon venait de rouler sous l’arche. Sans réfléchir, le Voyageur courut le récupérer. "
         "Il le ramassa, puis fit un pas pour revenir.\n\n"
-        "Le vent s’arrêta. Plus un bruit. Il leva lentement les yeux. Le parc had disparu.\n"
+        "Le vent s’arrêta. Plus un bruit. Il leva lentement les yeux. Le parc avait disparu.\n"
         "À sa place… Une vaste route pavée traversait une immense plaine. Des caravanes avançaient lentement. Des marchands discutaient.\n"
         "Le Voyageur resta figé.\n\n"
         "Parmi les voyageurs, certains ne ressemblaient à aucun être qu’il avait déjà vu. Leurs traits rappelaient ceux de grands félins, "
@@ -352,7 +352,8 @@ class TroubadourPaginationView(ui.View):
         )
         embed.set_thumbnail(url="https://images.emojiterra.com/google/android-10/512px/1f3ad.png")
         
-        await interaction.response.edit_message(embed=self.build_embed(), view=self)
+        await interaction.response.defer()
+        await interaction.message.edit(embed=self.build_embed(), view=self)
         await interaction.followup.send(embed=embed, ephemeral=True)
 
     def build_embed(self) -> discord.Embed:
